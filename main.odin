@@ -62,12 +62,9 @@ main :: proc() {
 	}
 
 
-	rl.InitWindow(0, 0, "Crop Clicker")
+	rl.InitWindow(0, 0, "Odin Rlay")
 	rl.SetTargetFPS(60)
 	rl.ToggleBorderlessWindowed()
-
-	font := rl.LoadFont("Roboto-VariableFont_wdth,wght.ttf")
-	rc.init_font(font)
 
 	SCREEN_SIZE.width = f32(rl.GetRenderWidth())
 	SCREEN_SIZE.height = f32(rl.GetRenderHeight())
@@ -166,6 +163,5 @@ main :: proc() {
 
 		rl.EndDrawing()
 	}
-	rl.UnloadFont(font)
 	rl.CloseWindow()
 }

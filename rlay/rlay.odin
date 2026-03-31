@@ -333,6 +333,16 @@ draw_rect_button :: proc(rect: Rect, current, selected: $T) -> bool {
 	return false
 }
 
+rect_button :: proc(rect: Rect) -> bool {
+	mouse_pos := rl.GetMousePosition()
+	if rl.CheckCollisionPointRec(mouse_pos, rect_to_raylib(rect)) {
+		if rl.IsMouseButtonPressed(.LEFT) {
+			return true
+		}
+	}
+	return false
+}
+
 draw_progress_bar :: proc(rect: ^Rect, progress: f32) {
 	bar_width := get_total_rect_width(rect)
 	bar_progress := cut_left(rect, bar_width * progress)
