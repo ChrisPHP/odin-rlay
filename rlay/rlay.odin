@@ -61,7 +61,7 @@ COLOUR_UI := ColorUI {
 	Text_Dim   = rl.Color{5, 3, 21, 76},
 }
 
-FONT := rl.GetFontDefault()
+FONT: rl.Font
 
 
 get_text_color :: proc(color: TextColor) -> rl.Color {
@@ -343,6 +343,7 @@ rect_button :: proc(rect: Rect) -> bool {
 	return false
 }
 
+
 draw_progress_bar :: proc(rect: ^Rect, progress: f32) {
 	bar_width := get_total_rect_width(rect)
 	bar_progress := cut_left(rect, bar_width * progress)
@@ -354,11 +355,11 @@ draw_text_ui :: proc(
 	text: cstring,
 	rect: Rect,
 	role: TextColor,
-	font_size: i32,
+	font_size: f32,
 	align: TextAlign,
 	padding: f32 = 0,
 ) {
-	text_width := rl.MeasureText(text, font_size)
+	text_width := rl.MeasureTextEx(FONT, text, font_size, 5)
 	rect_width := rect.maxx - rect.minx
 	rect_height := rect.maxy - rect.miny
 
@@ -371,12 +372,43 @@ draw_text_ui :: proc(
 		x = rect.minx + padding
 		y = rect.miny + (rect_height - f32(font_size)) / 2
 	case .Center:
-		x = rect.minx + (rect_width - f32(text_width)) / 2
+		x = rect.minx + ((rect_width / 2) - f32(text_width.x / 2))
 		y = rect.miny + (rect_height - f32(font_size)) / 2
 	case .Right:
-		x = rect.maxx - f32(text_width) - padding
+		x = rect.maxx - (text_width.x - padding)
 		y = rect.miny + (rect_height - f32(font_size)) / 2
 	}
 
-	rl.DrawTextEx(FONT, text, [2]f32{x, y}, f32(font_size), 10, color)
+	//rl.DrawText(text, i32(x), i32(y), font_size, color)
+	rl.DrawTextEx(FONT, text, [2]f32{x, y}, f32(font_size), 5, color)
+}
+
+draw_text :: proc(
+	text: cstring,
+	rect: Rect,
+	colour: rl.Color,
+	font_size: f32,
+	align: TextAlign,
+	padding: f32 = 0,
+) {
+	text_width := rl.MeasureTextEx(FONT, text, font_size, 5)
+	rect_width := rect.maxx - rect.minx
+	rect_height := rect.maxy - rect.miny
+
+	x := rect.minx + padding
+	y := rect.miny + (rect_height - f32(font_size)) / 2
+
+	switch align {
+	case .Left:
+		x = rect.minx + padding
+		y = rect.miny + (rect_height - f32(font_size)) / 2
+	case .Center:
+		x = rect.minx + ((rect_width / 2) - f32(text_width.x / 2))
+		y = rect.miny + (rect_height - f32(font_size)) / 2
+	case .Right:
+		x = rect.maxx - f32(text_width.x) - padding
+		y = rect.miny + (rect_height - f32(font_size)) / 2
+	}
+
+	rl.DrawTextEx(FONT, text, [2]f32{x, y}, f32(font_size), 5, colour)
 }

@@ -70,7 +70,7 @@ main :: proc() {
 	SCREEN_SIZE.height = f32(rl.GetRenderHeight())
 
 	ui_initial_setup()
-
+	rc.init_font(rl.GetFontDefault())
 	rc.init_ui_colours(
 		text = rl.Color{240, 231, 227, 255},
 		background = rl.Color{66, 57, 52, 255},
