@@ -77,10 +77,10 @@ main :: proc() {
 
 		sidebar_header := rc.cut_top_percent(&sidebar, 0.1)
 		rc.draw_text_ui("Sidebar Header", sidebar_header, .Muted, 50, .Left, 20)
-		nav_btns := rc.cut_multiple_evenly_height(&sidebar, 7)
+		nav_btns := rc.cut_multiple_evenly_height(&sidebar, 7, gap = 10)
 		for &n, i in nav_btns {
 			if i == 0 {
-				rc.add_padding(&n, 30)
+				rc.add_padding(&n, 10)
 				rc.draw_rect_ui(n, .Secondary, radius = 30, segments = 10)
 				rc.draw_text_ui("Button", n, .Main, 70, .Center)
 			} else {
@@ -91,17 +91,15 @@ main :: proc() {
 
 		rc.add_padding(&split_wdith[1], 40, .Top)
 		rc.add_padding(&split_wdith[1], 40, .Right)
-		contents := rc.cut_multiple_top_percent(&split_wdith[1], {0.1, 0.2, 0.5, 0.2})
-		for &c in contents {
-			rc.add_padding(&c, 40, .Bottom)
-		}
+		rc.add_padding(&split_wdith[1], 40, .Bottom)
+		contents := rc.cut_multiple_top_percent(&split_wdith[1], {0.1, 0.2, 0.5, 0.2}, gap = 40)
 		headers := rc.cut_multiple_evenly_width(&contents[0], 2)
 		rc.draw_text_ui("Header Text", headers[0], .Main, 70, .Left)
 		rc.draw_text_ui("Text", headers[1], .Muted, 70, .Right)
 
-		stats := rc.cut_multiple_evenly_width(&contents[1], 3)
+		rc.add_padding(&contents[1], 30, .Right)
+		stats := rc.cut_multiple_evenly_width(&contents[1], 3, gap = 30)
 		for &s in stats {
-			rc.add_padding(&s, 30, .Right)
 			rc.draw_rect_ui(s, .Raised, radius = 30, segments = 10)
 			texts := rc.cut_multiple_top_percent(&s, {0.3, 0.4, 0.3})
 			rc.draw_text_ui("Text", texts[0], .Muted, 30, .Left, 20)
@@ -119,17 +117,15 @@ main :: proc() {
 
 
 		rc.add_padding(&contents[3], 30, .Right)
-		footer := rc.cut_multiple_evenly_width(&contents[3], 2)
-		footer_btns := rc.cut_multiple_evenly_width(&footer[1], 2)
+		footer := rc.cut_multiple_evenly_width(&contents[3], 2, gap = 30)
+		footer_btns := rc.cut_multiple_evenly_width(&footer[1], 2, gap = 30)
 
-		rc.add_padding(&footer[0], 30, .Right)
 		footer_txt := rc.cut_left_percent(&footer[0], 0.05)
 		rc.draw_rect_ui(footer_txt, .Primary)
 		rc.draw_rect_ui(footer[0], .Raised)
 		rc.draw_text_ui("FooterText", footer[0], .Muted, 70, .Center)
 
 		for &b in footer_btns {
-			rc.add_padding(&b, 30, .Right)
 			rc.draw_rect_ui(b, .Accent, radius = 30, segments = 10)
 			rc.draw_text_ui("Button", b, .Main, 70, .Center)
 		}

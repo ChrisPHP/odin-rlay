@@ -167,102 +167,155 @@ cut_bottom_percent :: proc "contextless" (rect: ^Rect, percent: f32) -> Rect {
 	return cut_bottom(rect, get_total_rect_height(rect) * percent)
 }
 
-// Fills `out` with one rect per percent, each measured against the size the
-// rect had before any cut was made. Writes min(len(percents), len(out)) rects,
-// so a short buffer drops the trailing pieces rather than writing past its end.
+// How far the percents may sum from 1 and still count as covering the whole
+// rect. Summing a handful of f32 literals is off by ~1e-7, so this is far above
+// the rounding error and far below any split a caller would write on purpose.
+@(private)
+PERCENT_FILL_EPSILON :: f32(1e-4)
+
+// Fills `out` with one rect per percent. `gap` is reserved first (one gap
+// between each pair of pieces, none before the first or after the last) and the
+// percents are then measured against the space that remains. Writes
+// min(len(percents), len(out)) rects, so a short buffer drops the trailing
+// pieces rather than writing past its end.
+//
+// When the percents cover the whole rect the last piece takes the exact
+// remainder instead of its own rounded share, so the pieces and gaps tile the
+// rect and nothing is left behind. Percents that deliberately sum to less than
+// one keep their leftover in the rect for the caller to carry on cutting.
 @(private)
 _cut_multiple_percent :: proc "contextless" (
 	rect: ^Rect,
 	percents: []f32,
 	out: []Rect,
+	gap: f32,
 	dimension: proc "contextless" (_: Rect) -> f32,
 	cut: proc "contextless" (_: ^Rect, _: f32) -> Rect,
 ) {
-	total := dimension(rect^)
-	for p, i in percents[:min(len(percents), len(out))] {
-		out[i] = cut(rect, total * p)
+	count := min(len(percents), len(out))
+	if count <= 0 {return}
+	g := max(0, gap)
+	usable := max(0, dimension(rect^) - g * f32(count - 1))
+
+	sum: f32
+	for p in percents[:count] {sum += p}
+	fills_rect := abs(sum - 1) < PERCENT_FILL_EPSILON
+
+	for p, i in percents[:count] {
+		if i > 0 {cut(rect, g)}
+		if fills_rect && i == count - 1 {
+			out[i] = cut(rect, dimension(rect^))
+		} else {
+			out[i] = cut(rect, usable * p)
+		}
 	}
 }
 
 // The `*_into` variants write into a caller supplied buffer and never allocate.
-cut_multiple_top_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect) {
-	_cut_multiple_percent(rect, percents, out, _rect_height, cut_top)
+cut_multiple_top_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect, gap: f32 = 0) {
+	_cut_multiple_percent(rect, percents, out, gap, _rect_height, cut_top)
 }
-cut_multiple_bottom_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect) {
-	_cut_multiple_percent(rect, percents, out, _rect_height, cut_bottom)
+cut_multiple_bottom_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect, gap: f32 = 0) {
+	_cut_multiple_percent(rect, percents, out, gap, _rect_height, cut_bottom)
 }
-cut_multiple_left_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect) {
-	_cut_multiple_percent(rect, percents, out, _rect_width, cut_left)
+cut_multiple_left_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect, gap: f32 = 0) {
+	_cut_multiple_percent(rect, percents, out, gap, _rect_width, cut_left)
 }
-cut_multiple_right_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect) {
-	_cut_multiple_percent(rect, percents, out, _rect_width, cut_right)
+cut_multiple_right_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect, gap: f32 = 0) {
+	_cut_multiple_percent(rect, percents, out, gap, _rect_width, cut_right)
 }
 
-cut_multiple_top_percent :: proc(rect: ^Rect, percents: []f32, allocator := context.temp_allocator) -> []Rect {
+cut_multiple_top_percent :: proc(rect: ^Rect, percents: []f32, gap: f32 = 0, allocator := context.temp_allocator) -> []Rect {
 	result := make([]Rect, len(percents), allocator)
-	cut_multiple_top_percent_into(rect, percents, result)
+	cut_multiple_top_percent_into(rect, percents, result, gap)
 	return result
 }
-cut_multiple_bottom_percent :: proc(rect: ^Rect, percents: []f32, allocator := context.temp_allocator) -> []Rect {
+cut_multiple_bottom_percent :: proc(rect: ^Rect, percents: []f32, gap: f32 = 0, allocator := context.temp_allocator) -> []Rect {
 	result := make([]Rect, len(percents), allocator)
-	cut_multiple_bottom_percent_into(rect, percents, result)
+	cut_multiple_bottom_percent_into(rect, percents, result, gap)
 	return result
 }
-cut_multiple_left_percent :: proc(rect: ^Rect, percents: []f32, allocator := context.temp_allocator) -> []Rect {
+cut_multiple_left_percent :: proc(rect: ^Rect, percents: []f32, gap: f32 = 0, allocator := context.temp_allocator) -> []Rect {
 	result := make([]Rect, len(percents), allocator)
-	cut_multiple_left_percent_into(rect, percents, result)
+	cut_multiple_left_percent_into(rect, percents, result, gap)
 	return result
 }
-cut_multiple_right_percent :: proc(rect: ^Rect, percents: []f32, allocator := context.temp_allocator) -> []Rect {
+cut_multiple_right_percent :: proc(rect: ^Rect, percents: []f32, gap: f32 = 0, allocator := context.temp_allocator) -> []Rect {
 	result := make([]Rect, len(percents), allocator)
-	cut_multiple_right_percent_into(rect, percents, result)
+	cut_multiple_right_percent_into(rect, percents, result, gap)
 	return result
 }
 
 // Splits the rect into a `len_col` x `len_col` grid, row major, consuming the
-// grid's height from the top of the rect. `out` must hold len_col * len_col
-// rects; a shorter buffer leaves both `out` and the rect untouched.
-cut_rect_evenly_into :: proc "contextless" (rect: ^Rect, len_col: int, out: []Rect) {
+// grid's height from the top of the rect. `gap` separates neighbouring cells in
+// both axes and is not applied outside the grid. `out` must hold
+// len_col * len_col rects; a shorter buffer leaves both `out` and the rect
+// untouched.
+cut_rect_evenly_into :: proc "contextless" (rect: ^Rect, len_col: int, out: []Rect, gap: f32 = 0) {
 	if len_col <= 0 || len(out) < len_col * len_col {return}
-	height := get_total_rect_height(rect) / f32(len_col)
+	g := max(0, gap)
+	height := max(0, get_total_rect_height(rect) - g * f32(len_col - 1)) / f32(len_col)
 	for row in 0 ..< len_col {
-		r := cut_top(rect, height)
-		cut_multiple_evenly_width_into(&r, out[row * len_col:][:len_col])
+		if row > 0 {cut_top(rect, g)}
+		r := cut_top(rect, height if row < len_col - 1 else get_total_rect_height(rect))
+		cut_multiple_evenly_width_into(&r, out[row * len_col:][:len_col], g)
 	}
 }
 
-cut_rect_evenly :: proc(rect: ^Rect, len_col: int, allocator := context.temp_allocator) -> []Rect {
+cut_rect_evenly :: proc(rect: ^Rect, len_col: int, gap: f32 = 0, allocator := context.temp_allocator) -> []Rect {
 	if len_col <= 0 {return nil}
 	result := make([]Rect, len_col * len_col, allocator)
-	cut_rect_evenly_into(rect, len_col, result)
+	cut_rect_evenly_into(rect, len_col, result, gap)
 	return result
 }
 
-cut_multiple_evenly_height_into :: proc "contextless" (rect: ^Rect, out: []Rect) {
-	height_piece := get_total_rect_height(rect) / f32(len(out))
+// Splits the rect into `len(out)` equal pieces, separated by `gap`. The gaps sit
+// between pieces only, so `len(out) - 1` of them are removed from the total
+// before it is divided. A negative `gap` is treated as zero.
+//
+// The last piece takes whatever is left rather than a recomputed share, so the
+// pieces and gaps tile the rect exactly. Without that the divided size is
+// rounded `len(out)` times and the far edge drifts by a few ulp, which leaves
+// a sliver that hit tests miss.
+cut_multiple_evenly_height_into :: proc "contextless" (rect: ^Rect, out: []Rect, gap: f32 = 0) {
+	if len(out) == 0 {return}
+	g := max(0, gap)
+	height_piece := max(0, get_total_rect_height(rect) - g * f32(len(out) - 1)) / f32(len(out))
 	for i in 0 ..< len(out) {
-		out[i] = cut_top(rect, height_piece)
+		if i > 0 {cut_top(rect, g)}
+		if i == len(out) - 1 {
+			out[i] = cut_top(rect, get_total_rect_height(rect))
+		} else {
+			out[i] = cut_top(rect, height_piece)
+		}
 	}
 }
 
-cut_multiple_evenly_width_into :: proc "contextless" (rect: ^Rect, out: []Rect) {
-	width_piece := get_total_rect_width(rect) / f32(len(out))
+cut_multiple_evenly_width_into :: proc "contextless" (rect: ^Rect, out: []Rect, gap: f32 = 0) {
+	if len(out) == 0 {return}
+	g := max(0, gap)
+	width_piece := max(0, get_total_rect_width(rect) - g * f32(len(out) - 1)) / f32(len(out))
 	for i in 0 ..< len(out) {
-		out[i] = cut_left(rect, width_piece)
+		if i > 0 {cut_left(rect, g)}
+		if i == len(out) - 1 {
+			out[i] = cut_left(rect, get_total_rect_width(rect))
+		} else {
+			out[i] = cut_left(rect, width_piece)
+		}
 	}
 }
 
-cut_multiple_evenly_height :: proc(rect: ^Rect, pieces: int, allocator := context.temp_allocator) -> []Rect {
+cut_multiple_evenly_height :: proc(rect: ^Rect, pieces: int, gap: f32 = 0, allocator := context.temp_allocator) -> []Rect {
 	if pieces <= 0 {return nil}
 	result := make([]Rect, pieces, allocator)
-	cut_multiple_evenly_height_into(rect, result)
+	cut_multiple_evenly_height_into(rect, result, gap)
 	return result
 }
 
-cut_multiple_evenly_width :: proc(rect: ^Rect, pieces: int, allocator := context.temp_allocator) -> []Rect {
+cut_multiple_evenly_width :: proc(rect: ^Rect, pieces: int, gap: f32 = 0, allocator := context.temp_allocator) -> []Rect {
 	if pieces <= 0 {return nil}
 	result := make([]Rect, pieces, allocator)
-	cut_multiple_evenly_width_into(rect, result)
+	cut_multiple_evenly_width_into(rect, result, gap)
 	return result
 }
 
