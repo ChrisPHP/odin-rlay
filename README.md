@@ -5,7 +5,7 @@ General UI layout creator in Odin with support for Raylib. It create cuts to rec
 
 ## Usage
 
-You can find an example usage in `rlay.odin`. Full documentation will be added in the future.
+You can find an example usage in `main.odin`. Full documentation will be added in the future.
 
 ## Memory
 
@@ -23,7 +23,9 @@ for !rl.WindowShouldClose() {
 
 Pass an allocator explicitly for a longer lifetime (`rc.cut_multiple_top_percent(&rect, {0.5, 0.5}, context.allocator)`),
 and `delete` the result yourself in that case. Every cut also has a non-allocating
-`_into` variant that fills a caller supplied buffer:
+`_into` variant that fills a caller supplied buffer. The buffer sets the piece count
+for the `evenly` variants; for the percent variants it should hold one rect per
+percent (extra percents are dropped), and `cut_rect_evenly_into` needs `len_col * len_col`:
 
 ```odin
 rects: [3]rc.Rect

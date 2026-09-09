@@ -167,88 +167,68 @@ cut_bottom_percent :: proc "contextless" (rect: ^Rect, percent: f32) -> Rect {
 	return cut_bottom(rect, get_total_rect_height(rect) * percent)
 }
 
-@(private)
-Side :: enum {
-	Top,
-	Bottom,
-	Left,
-	Right,
-}
-
 // Fills `out` with one rect per percent, each measured against the size the
-// rect had before any cut was made.
+// rect had before any cut was made. Writes min(len(percents), len(out)) rects,
+// so a short buffer drops the trailing pieces rather than writing past its end.
 @(private)
-_cut_multiple_percent :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect, side: Side) {
-	switch side {
-	case .Top:
-		total := get_total_rect_height(rect)
-		for p, i in percents {out[i] = cut_top(rect, total * p)}
-	case .Bottom:
-		total := get_total_rect_height(rect)
-		for p, i in percents {out[i] = cut_bottom(rect, total * p)}
-	case .Left:
-		total := get_total_rect_width(rect)
-		for p, i in percents {out[i] = cut_left(rect, total * p)}
-	case .Right:
-		total := get_total_rect_width(rect)
-		for p, i in percents {out[i] = cut_right(rect, total * p)}
+_cut_multiple_percent :: proc "contextless" (
+	rect: ^Rect,
+	percents: []f32,
+	out: []Rect,
+	dimension: proc "contextless" (_: Rect) -> f32,
+	cut: proc "contextless" (_: ^Rect, _: f32) -> Rect,
+) {
+	total := dimension(rect^)
+	for p, i in percents[:min(len(percents), len(out))] {
+		out[i] = cut(rect, total * p)
 	}
 }
 
 // The `*_into` variants write into a caller supplied buffer and never allocate.
 cut_multiple_top_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect) {
-	_cut_multiple_percent(rect, percents, out, .Top)
+	_cut_multiple_percent(rect, percents, out, _rect_height, cut_top)
 }
 cut_multiple_bottom_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect) {
-	_cut_multiple_percent(rect, percents, out, .Bottom)
+	_cut_multiple_percent(rect, percents, out, _rect_height, cut_bottom)
 }
 cut_multiple_left_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect) {
-	_cut_multiple_percent(rect, percents, out, .Left)
+	_cut_multiple_percent(rect, percents, out, _rect_width, cut_left)
 }
 cut_multiple_right_percent_into :: proc "contextless" (rect: ^Rect, percents: []f32, out: []Rect) {
-	_cut_multiple_percent(rect, percents, out, .Right)
-}
-
-@(private)
-_cut_multiple_percent_alloc :: proc(
-	rect: ^Rect,
-	percents: []f32,
-	side: Side,
-	allocator := context.temp_allocator,
-) -> []Rect {
-	result := make([]Rect, len(percents), allocator)
-	_cut_multiple_percent(rect, percents, result, side)
-	return result
+	_cut_multiple_percent(rect, percents, out, _rect_width, cut_right)
 }
 
 cut_multiple_top_percent :: proc(rect: ^Rect, percents: []f32, allocator := context.temp_allocator) -> []Rect {
-	return _cut_multiple_percent_alloc(rect, percents, .Top, allocator)
+	result := make([]Rect, len(percents), allocator)
+	cut_multiple_top_percent_into(rect, percents, result)
+	return result
 }
 cut_multiple_bottom_percent :: proc(rect: ^Rect, percents: []f32, allocator := context.temp_allocator) -> []Rect {
-	return _cut_multiple_percent_alloc(rect, percents, .Bottom, allocator)
+	result := make([]Rect, len(percents), allocator)
+	cut_multiple_bottom_percent_into(rect, percents, result)
+	return result
 }
 cut_multiple_left_percent :: proc(rect: ^Rect, percents: []f32, allocator := context.temp_allocator) -> []Rect {
-	return _cut_multiple_percent_alloc(rect, percents, .Left, allocator)
+	result := make([]Rect, len(percents), allocator)
+	cut_multiple_left_percent_into(rect, percents, result)
+	return result
 }
 cut_multiple_right_percent :: proc(rect: ^Rect, percents: []f32, allocator := context.temp_allocator) -> []Rect {
-	return _cut_multiple_percent_alloc(rect, percents, .Right, allocator)
+	result := make([]Rect, len(percents), allocator)
+	cut_multiple_right_percent_into(rect, percents, result)
+	return result
 }
 
-// Splits the rect into a `len_col` x `len_col` grid, row major.
+// Splits the rect into a `len_col` x `len_col` grid, row major, consuming the
+// grid's height from the top of the rect. `out` must hold len_col * len_col
+// rects; a shorter buffer leaves both `out` and the rect untouched.
 cut_rect_evenly_into :: proc "contextless" (rect: ^Rect, len_col: int, out: []Rect) {
-	if len_col <= 0 {return}
-	x, y := rect.minx, rect.miny
-	width := get_total_rect_width(rect) / f32(len_col)
+	if len_col <= 0 || len(out) < len_col * len_col {return}
 	height := get_total_rect_height(rect) / f32(len_col)
-
 	for row in 0 ..< len_col {
-		miny := y + f32(row) * height
-		for col in 0 ..< len_col {
-			minx := x + f32(col) * width
-			out[row * len_col + col] = Rect{minx, miny, minx + width, miny + height}
-		}
+		r := cut_top(rect, height)
+		cut_multiple_evenly_width_into(&r, out[row * len_col:][:len_col])
 	}
-	rect.miny = min(rect.maxy, y + height * f32(len_col))
 }
 
 cut_rect_evenly :: proc(rect: ^Rect, len_col: int, allocator := context.temp_allocator) -> []Rect {
@@ -286,21 +266,28 @@ cut_multiple_evenly_width :: proc(rect: ^Rect, pieces: int, allocator := context
 	return result
 }
 
+// Insets the rect by `padding` on the given side(s). Like the `cut_*` procs
+// the edges are clamped so a rect can shrink to zero size but never invert.
+// For `.All`, opposite edges meet at the centre when padding exceeds half the size.
 add_padding :: proc "contextless" (rect: ^Rect, padding: f32, padding_type: Padding = .All) {
 	switch padding_type {
 	case .All:
-		rect.minx += padding
-		rect.miny += padding
-		rect.maxx -= padding
-		rect.maxy -= padding
+		half_w := get_total_rect_width(rect) / 2
+		half_h := get_total_rect_height(rect) / 2
+		px := min(padding, half_w)
+		py := min(padding, half_h)
+		rect.minx += px
+		rect.maxx -= px
+		rect.miny += py
+		rect.maxy -= py
 	case .Top:
-		rect.miny += padding
+		rect.miny = min(rect.maxy, rect.miny + padding)
 	case .Bottom:
-		rect.maxy -= padding
+		rect.maxy = max(rect.miny, rect.maxy - padding)
 	case .Left:
-		rect.minx += padding
+		rect.minx = min(rect.maxx, rect.minx + padding)
 	case .Right:
-		rect.maxx -= padding
+		rect.maxx = max(rect.minx, rect.maxx - padding)
 	}
 }
 
@@ -308,17 +295,37 @@ rect_to_raylib :: proc "contextless" (rect: Rect) -> rl.Rectangle {
 	return rl.Rectangle {
 		x      = rect.minx,
 		y      = rect.miny,
-		width  = max(0, rect.maxx - rect.minx),
-		height = max(0, rect.maxy - rect.miny),
+		width  = get_total_rect_width(rect),
+		height = get_total_rect_height(rect),
 	}
 }
 
-get_total_rect_width :: proc "contextless" (rect: ^Rect) -> f32 {
-	return max(0, rect.maxx - rect.minx)
+// Size of a rect clamped to zero for inverted rects. Accept both a value and a
+// pointer so procs holding a `Rect` by value can reuse them.
+get_total_rect_width :: proc {
+	_rect_width,
+	_rect_width_ptr,
+}
+get_total_rect_height :: proc {
+	_rect_height,
+	_rect_height_ptr,
 }
 
-get_total_rect_height :: proc "contextless" (rect: ^Rect) -> f32 {
+@(private)
+_rect_width :: proc "contextless" (rect: Rect) -> f32 {
+	return max(0, rect.maxx - rect.minx)
+}
+@(private)
+_rect_height :: proc "contextless" (rect: Rect) -> f32 {
 	return max(0, rect.maxy - rect.miny)
+}
+@(private)
+_rect_width_ptr :: proc "contextless" (rect: ^Rect) -> f32 {
+	return _rect_width(rect^)
+}
+@(private)
+_rect_height_ptr :: proc "contextless" (rect: ^Rect) -> f32 {
+	return _rect_height(rect^)
 }
 
 // Converts a pixel corner radius to raylib's roundness ratio.
@@ -362,28 +369,25 @@ draw_rect :: proc "contextless" (
 	}
 }
 
+// Draws a themed button, `.Accent` when `current == selected` and `.Secondary`
+// otherwise, and reports whether it was clicked this frame.
 draw_rect_button :: proc "contextless" (rect: Rect, current, selected: $T) -> bool {
-	rl_rect := rect_to_raylib(rect)
-	if current == selected {
-		rl.DrawRectangleRec(rl_rect, rl.Color{22, 163, 74, 255})
-	} else {
-		rl.DrawRectangleRec(rl_rect, rl.Color{75, 85, 99, 255})
-	}
-	return _hit_rect(rl_rect)
+	draw_rect_ui(rect, .Accent if current == selected else .Secondary)
+	return rect_button(rect)
 }
 
 rect_button :: proc "contextless" (rect: Rect) -> bool {
-	return _hit_rect(rect_to_raylib(rect))
-}
-
-@(private)
-_hit_rect :: proc "contextless" (rl_rect: rl.Rectangle) -> bool {
 	if !rl.IsMouseButtonPressed(.LEFT) {return false}
-	return rl.CheckCollisionPointRec(rl.GetMousePosition(), rl_rect)
+	return rl.CheckCollisionPointRec(rl.GetMousePosition(), rect_to_raylib(rect))
 }
 
 
+// `progress` is clamped to 0..1 so out-of-range or NaN input can never grow
+// the rect or draw outside it.
 draw_progress_bar :: proc "contextless" (rect: ^Rect, progress: f32) {
+	progress := progress
+	if progress != progress {progress = 0} // NaN
+	progress = clamp(progress, 0, 1)
 	bar_width := get_total_rect_width(rect)
 	bar_progress := cut_left(rect, bar_width * progress)
 	draw_rect(bar_progress, rl.GREEN, rl.WHITE)
@@ -409,18 +413,22 @@ draw_text :: proc "contextless" (
 	align: TextAlign,
 	padding: f32 = 0,
 ) {
-	x := rect.minx + padding
-	y := rect.miny + ((rect.maxy - rect.miny) - font_size) / 2
+	// Measuring walks every glyph and only the centred and right aligned
+	// cases need the width, so keep it out of the left aligned path.
+	text_width: f32
+	if align != .Left {
+		text_width = rl.MeasureTextEx(FONT, text, font_size, TEXT_SPACING).x
+	}
 
-	// Only the centred and right aligned cases need the width of the text,
-	// and measuring walks every glyph, so keep it out of the left aligned path.
+	// `padding` insets the text from the aligned edge for both .Left and .Right.
+	x: f32
+	y := rect.miny + (get_total_rect_height(rect) - font_size) / 2
 	switch align {
 	case .Left:
+		x = rect.minx + padding
 	case .Center:
-		text_width := rl.MeasureTextEx(FONT, text, font_size, TEXT_SPACING).x
-		x = rect.minx + ((rect.maxx - rect.minx) - text_width) / 2
+		x = rect.minx + (get_total_rect_width(rect) - text_width) / 2
 	case .Right:
-		text_width := rl.MeasureTextEx(FONT, text, font_size, TEXT_SPACING).x
 		x = rect.maxx - text_width - padding
 	}
 
